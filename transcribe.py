@@ -1,14 +1,19 @@
 import whisperx
 import torch
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # -----------------------------
 # SETTINGS
 # -----------------------------
 
-AUDIO_FILE = "audio/sample.m4a"
+AUDIO_FILE = "audio/CPA-Meeting-May22-2026.m4a"
 
 HF_TOKEN = os.getenv("HF_TOKEN")
+if not HF_TOKEN:
+    raise ValueError("HF_TOKEN not found. Check your .env file.")
 
 MODEL_SIZE = "medium"
 
@@ -16,7 +21,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 BATCH_SIZE = 8
 
-COMPUTE_TYPE = "float32"
+COMPUTE_TYPE = "float16"
 
 # -----------------------------
 # LOAD WHISPER MODEL
@@ -46,7 +51,8 @@ print("Transcribing audio...")
 
 result = model.transcribe(
     audio,
-    batch_size=BATCH_SIZE
+    batch_size=BATCH_SIZE,
+    print_progress=True
 )
 
 # -----------------------------
@@ -65,8 +71,28 @@ result = whisperx.align(
     model_a,
     metadata,
     audio,
-    DEVICE
+    DEVICE,
+    print_progress=True
 )
+# -----------------------------
+# SAVE INTERMEDIATE TRANSCRIPT BEFORE DIARIZATION
+# -----------------------------
+
+os.makedirs("output", exist_ok=True)
+
+intermediate_file = "output/transcript_before_diarization.txt"
+
+print(f"Saving intermediate transcript to: {intermediate_file}")
+
+with open(intermediate_file, "w", encoding="utf-8") as f:
+    for segment in result["segments"]:
+        start = round(segment["start"], 2)
+        end = round(segment["end"], 2)
+        text = segment["text"]
+
+        f.write(f"[{start}s -> {end}s] {text}\n")
+
+print("Intermediate transcript saved.")
 
 # -----------------------------
 # SPEAKER DIARIZATION
@@ -79,12 +105,24 @@ diarize_model = whisperx.diarize.DiarizationPipeline(
     device=DEVICE
 )
 
-diarize_segments = diarize_model(audio)
+diarize_segments = diarize_model(
+    AUDIO_FILE,
+    min_speakers=3,
+    max_speakers=3
+)
+
+print("Diarization output:")
+print(diarize_segments)
+print(type(diarize_segments))
+
+print("Assigning speakers to transcript...")
 
 result = whisperx.assign_word_speakers(
     diarize_segments,
     result
 )
+
+print("Speaker assignment complete.")
 
 # -----------------------------
 # SAVE OUTPUT
